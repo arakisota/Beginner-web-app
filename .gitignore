@@ -179,4 +179,4 @@ cython_debug/
 *.vsix
 
 #Others
-./Ds_Store
+.Ds_Store
