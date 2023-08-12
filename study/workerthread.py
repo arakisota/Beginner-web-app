@@ -1,13 +1,14 @@
 import os
 import re
 import traceback
-import urllib.parse
 from datetime import datetime
 from socket import socket
 from threading import Thread
 from typing import Optional, Tuple
 
 import views
+from henango.http.request import HTTPRequest
+from henango.http.response import HTTPResponse
 
 
 class WorkerThread(Thread):
@@ -30,6 +31,13 @@ class WorkerThread(Thread):
         "/now": views.now,
         "/show_request": views.show_request,
         "/parameters": views.parameters
+    }
+
+    #ステータスコードとステータスラインの対応
+    STATUS_LINES = {
+        200: "200 OK",
+        404: "404 Not Found",
+        405: "405 Method Not Allowed"
     }
 
     def __init__(self, client_socket: socket, address: Tuple[str, int]):
@@ -55,27 +63,22 @@ class WorkerThread(Thread):
             # HTTPリクエストをパースする
             method, path, http_version, request_header, request_body = self.parse_http_request(request)
 
-            response_body:  bytes
-            content_type: Optional[str]
-            response_line: str
             #pathに対応するview関数があれば、関数を取得して呼び出し、レスポンスを生成する
-            if path in self.URL_VIEW:
-                view = self.URL_VIEW[path]
-                response_body, content_type, response_line = view(
-                    method, path, http_version, request_header, request_body
-                )
+            if request.path in self.URL_VIEW:
+                view = self.URL_VIEW[request.path]
+                response = view(request)
 
             #pathがそれ以外のときは、静的ファイルからレスポンセ羽を生成する
             else:
                 try:
                     # ファイルからレスポンスボディを生成
-                    response_body = self.get_static_file_content(path)
+                    response_body = self.get_static_file_content(request.path)
 
                     #Content_Typeを指定
                     content_type = None
 
                     # レスポンスラインを生成
-                    response_line = "HTTP/1.1 200 OK\r\n"
+                    response = HTTPResponse(body=response_body, content_type=content_type, status_code = 404)
 
                 except OSError:
                     #レスポンスを取得できなかった場合は、ログを出力して404を返す
@@ -84,6 +87,9 @@ class WorkerThread(Thread):
                     response_body = b"<html><body><h1>404 Not Found</h1></body></html>"
                     content_type = "text/html; charset=UTF-8"
                     response_line = "HTTP/1.1 404 Not Found\r\n"
+
+            #レスポンスラインを生成
+            response_line = self.build_response_line(response)
 
             # レスポンスヘッダーを生成
             response_header = self.build_response_header(path, response_body, content_type)
@@ -156,6 +162,19 @@ class WorkerThread(Thread):
 
         with open(static_file_path, "rb") as f:
             return f.read()
+
+    def build_response_line(self, response: HTTPResponse) -> str:
+        """
+        レスポンスラインを構築する
+        Args:
+            response (HTTPResponse): _description_
+
+        Returns:
+            str: _description_
+        """
+        status_line = self.STATUS_LINES[response.status_code]
+
+        return f"HTTP/1.1 {status_line}"
 
     def build_response_header(self, path: str, response_body: bytes, content_type: Optional[str]) -> str:
         """_summary_
