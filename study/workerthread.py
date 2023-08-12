@@ -1,12 +1,13 @@
 import os
 import re
-import textwrap
 import traceback
+import urllib.parse
 from datetime import datetime
-from pprint import pformat
 from socket import socket
 from threading import Thread
 from typing import Optional, Tuple
+
+import views
 
 
 class WorkerThread(Thread):
@@ -17,11 +18,18 @@ class WorkerThread(Thread):
 
     #拡張子とMIME Typeの対応
     MIME_TYPES = {
-        "html": "text/html",
+        "html": "text/html; charset=UTF-8",
         "css": "text/css",
         "png": "image/png",
         "jpg": "image/jpg",
         "gif": "image/gif"
+    }
+
+    #pathとview関数の対応
+    URL_VIEW = {
+        "/now": views.now,
+        "/show_request": views.show_request,
+        "/parameters": views.parameters
     }
 
     def __init__(self, client_socket: socket, address: Tuple[str, int]):
@@ -50,48 +58,12 @@ class WorkerThread(Thread):
             response_body:  bytes
             content_type: Optional[str]
             response_line: str
-            #pathが/nowのときは、現在時刻を表示するHTMLを生成する
-            if path == "/now":
-                html = f"""\
-                <html>
-                <body>
-                    <h1>Now: {datetime.now()}</h1>
-                </body>
-                </html>
-            """
-                response_body = textwrap.dedent(html).encode()
-
-                #Content-typeを指定
-                content_type = "text/html"
-
-                #レスポンスラインを生成
-                response_line = "HTTP/1.1 200 OK\r\n"
-
-            #patgが/show_requestのときは、HTTPリクエストの内容を表示するHTMLを生成する
-            elif path == "/show_request":
-                html = f"""\
-                <html>
-                <body>
-                    <h1>Request Line:</h1>
-                    <p>
-                        {method} {path} {http_version}
-                    </p>
-                    <h1>Headers:</h1>
-                    <pre>{pformat(request_header)}</pre>
-                    <h1>Headers:</h1>
-                    <h1>Body:</h1>
-                    <pre>{request_body.decode("utf-8", "ignore")}</pre>
-
-                </body>
-                </html>
-            """
-                response_body = textwrap.dedent(html).encode()
-
-                #Content-Typeを指定
-                content_type = "text/html"
-
-                #レスポンスラインを生成
-                response_line = "HTTP/1.1 200 OK\r\n"
+            #pathに対応するview関数があれば、関数を取得して呼び出し、レスポンスを生成する
+            if path in self.URL_VIEW:
+                view = self.URL_VIEW[path]
+                response_body, content_type, response_line = view(
+                    method, path, http_version, request_header, request_body
+                )
 
             #pathがそれ以外のときは、静的ファイルからレスポンセ羽を生成する
             else:
@@ -110,7 +82,7 @@ class WorkerThread(Thread):
                     traceback.print_exc()
 
                     response_body = b"<html><body><h1>404 Not Found</h1></body></html>"
-                    response_type = "text/html"
+                    content_type = "text/html; charset=UTF-8"
                     response_line = "HTTP/1.1 404 Not Found\r\n"
 
             # レスポンスヘッダーを生成
