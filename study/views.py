@@ -24,7 +24,7 @@ def now(request: HTTPRequest) -> HTTPResponse:
 
     return HTTPResponse(body=body, content_type=content_type, status_code=200)
 
-def show_requset(request: HTTPRequest) -> HTTPResponse:
+def show_request(request: HTTPRequest) -> HTTPResponse:
     """
     HTTPリクエストの内容を表示するHTMLを生成する
     Args:
