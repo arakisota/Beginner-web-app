@@ -1,9 +1,10 @@
 import os
+import textwrap
 import traceback
 from datetime import datetime
 from socket import socket
 from threading import Thread
-from typing import Tuple
+from typing import Optional, Tuple
 
 
 class WorkerThread(Thread):
@@ -44,20 +45,47 @@ class WorkerThread(Thread):
             # HTTPリクエストをパースする
             method, path, http_version, request_header, request_body = self.parse_http_request(request)
 
-            try:
-                # ファイルからレスポンスボディを生成
-                response_body = self.get_static_file_content(path)
+            response_body:  bytes
+            content_type: Optional[str]
+            response_line: str
+            #pathが/nowのときは、現在時刻を表示するHTMLを生成する
+            if path == "/now":
+                html = f"""\
+                <html>
+                <body>
+                    <h1>Now: {datetime.now()}</h1>
+                </body>
+                </html>
+            """
+                response_body = textwrap.dedent(html).encode()
 
-                # レスポンスラインを生成
+                #Content-typeを指定
+                content_type = "text/html"
+
+                #レスポンスラインを生成
                 response_line = "HTTP/1.1 200 OK\r\n"
+            #pathがそれ以外のときは、静的ファイルからレスポンセ羽を生成する
+            else:
+                try:
+                    # ファイルからレスポンスボディを生成
+                    response_body = self.get_static_file_content(path)
 
-            except OSError:
-                # ファイルが見つからなかった場合は404を返す
-                response_body = b"<html><body><h1>404 Not Found</h1></body></html>"
-                response_line = "HTTP/1.1 404 Not Found\r\n"
+                    #Content_Typeを指定
+                    content_type = None
+
+                    # レスポンスラインを生成
+                    response_line = "HTTP/1.1 200 OK\r\n"
+
+                except OSError:
+                    #レスポンスを取得できなかった場合は、ログを出力して404を返す
+                    traceback.print_exc()
+
+                    response_body = b"<html><body><h1>404 Not Found</h1></body></html>"
+                    response_type = "text/html"
+                    response_line = "HTTP/1.1 404 Not Found\r\n"
 
             # レスポンスヘッダーを生成
-            response_header = self.build_response_header(path, response_body)
+            response_header = self.build_response_header(path, response_body, content_type)
 
             # レスポンス全体を生成する
             response = (response_line + response_header + "\r\n").encode() + response_body
@@ -122,7 +150,7 @@ class WorkerThread(Thread):
         with open(static_file_path, "rb") as f:
             return f.read()
 
-    def build_response_header(self, path: str, response_body: bytes) -> str:
+    def build_response_header(self, path: str, response_body: bytes, content_type: Optional[str]) -> str:
         """_summary_
         レスポンスヘッダーを構築する
         Args:
@@ -131,15 +159,16 @@ class WorkerThread(Thread):
         Returns:
             str: _description_
         """
-        #ヘッダー生成のためにContent-Typeを取得しておく
-        #pathから拡張子を取得
-        if "." in path:
-            ext = path.rsplit(".", maxsplit=1)[-1]
-        else:
-            ext = ""
-        #拡張子からMIME Typeを取得
-        #知らない対応していない拡張子の場合はoctet-streamとする
-        content_type = self.MIME_TYPES.get(ext, "application/octet-stream")
+        #Contetn-Typeが指定されてない場合は、pathから指定する
+        if content_type is None:
+            #pathから拡張子を取得
+            if "." in path:
+                ext = path.rsplit(".", maxsplit=1)[-1]
+            else:
+                ext = ""
+            #拡張子からMIME Typeを取得
+            #知らない対応していない拡張子の場合はoctet-streamとする
+            content_type = self.MIME_TYPES.get(ext, "application/octet-stream")
 
         # レスポンスヘッダーを生成
         response_header = ""
